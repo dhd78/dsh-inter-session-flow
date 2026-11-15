@@ -1,0 +1,37 @@
+{
+  "name": "dsh-inter-session-flow",
+  "version": "1.0.2",
+  "type": "module",
+  "description": "Inter-session flow: bind existing DSH sessions into an executable graph.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/*.js",
+    "README.md",
+    "CHANGELOG.md",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dhd78/dsh-inter-session-flow.git"
+  }
+}
