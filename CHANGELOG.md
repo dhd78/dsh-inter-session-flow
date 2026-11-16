@@ -1,5 +1,58 @@
 # Changelog
 
+## 2.0.0-m6.2 — P3 修复
+
+- 修复 Skill 面板切换节点后仍保持展开的问题。
+- 原因是 `selectedNode` 实际保存的是字符串 id，effect 依赖写成了 `selectedNode?.id`，始终为 `undefined`。
+- 改为依赖 `selectedNode` 本身。
+
+## 2.0.0-m6.1 — 验收修复
+
+- 修复 `POST /import` 的 `root is not defined`。
+- `POST /run` 空输入改为 400 `empty-input`。
+- Skill 面板切换节点时恢复折叠默认态。
+- 同一 interrupted run 只允许 resume 一次：
+  - 源 run 写入 `resumeConsumed` / `resumedBy`；
+  - 第二次 resume 返回 409 `already-resumed`。
+
+## 2.0.0-m6.0 — M6 运行留痕与恢复
+
+- 新增 `state.json` 运行快照：`ready / active / joins / cursors`。
+- 新增稳定 `messageId = <runId>:<jobId>:primary` 与 `afterSeq`。
+- 新增 delivery ledger：同一 delivery 不重复投递。
+- 新增崩溃恢复：
+  - `POST /run/reconcile`
+  - `POST /run/resume`
+  - 未发送的 running 节点自动恢复；已发送无输出转人工确认。
+- 重试改为同 run 继续，保留 join 队列。
+- 新增运行历史恢复 UI：
+  - 恢复运行；
+  - 检查中断节点；
+  - 查看输出；
+  - 采纳并继续；
+  - 重试并继续下游；
+  - 放弃分支。
+- 新增 `POST /run/adopt` / `POST /run/abandon`。
+- 并行 + all join、分支 join 重试、4 工位 + 2 Skill 真实流程图通过。
+
+## 2.0.0-m1.1 — M1 修正
+
+- 修复 M1.1 测试包中的删除、重命名、导入副本等问题。
+
+- 命名调整：
+  - `flowId` / `flowVersion` / `flowHash` / `flowContent`
+  - API `/flows`
+  - 存储 `flows/`
+  - 包字段 `flow`
+- 包格式：`packageVersion:2` / `flow.schemaVersion:3`。
+- 旧 `lines/` 迁移到 `flows/`，备份保留。
+- `graph.json` 保留 1.0.x 兼容层。
+- 新增 flow 库、导入、导出、preflight。
+- 流程图库支持软删除：移到 `trash/`，同时移走 binding。
+- 流程图支持改名（`PATCH /flows/:id`）。
+- 导入同名流程图不再覆盖：自动 `flowId-2`、标题 ` (2)`，原图不变。
+- **Breaking**：`packageVersion:1` 旧包明确拒绝，不静默接受；v1→v2 迁移器在 M1 后提供。
+
 ## 1.0.2 — 2026-11-15
 
 - 修复停止运行后节点状态残留 `running`；
