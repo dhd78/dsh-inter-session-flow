@@ -1,8 +1,8 @@
 {
   "name": "dsh-inter-session-flow",
-  "version": "1.0.2",
+  "version": "2.0.0-m6.2",
   "type": "module",
-  "description": "Inter-session flow: bind existing DSH sessions into an executable graph.",
+  "description": "Inter-session flow: bind existing DSH sessions into an executable workflow graph.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -15,10 +15,20 @@
     "lib/*.js",
     "README.md",
     "CHANGELOG.md",
+    "docs/*.md",
+    "docs/adr/*.md",
+    "schemas/*.json",
+    "examples/*.json",
+    "tests/*.mjs",
+    "tools/*.mjs",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg"
   ],
+  "scripts": {
+    "test": "node --test tests/m1-core.test.mjs tests/m1-package.test.mjs tests/m1-flow-names.test.mjs tests/m1-skill-package.test.mjs tests/m1-flow-identity.test.mjs tests/m1-run-store.test.mjs tests/m1-skill-locks.test.mjs",
+    "preflight": "node tools/run-preflight.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
