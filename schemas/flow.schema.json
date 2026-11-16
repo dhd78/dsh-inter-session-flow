@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.dsh/inter-session-flow/flow.schema.json",
+  "title": "Inter-session Flow Definition",
+  "description": "Standalone flow file schema. Package export uses flowContent, not this root; root fields flowId/version/title are only for standalone flow storage.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "flowId",
+    "version",
+    "title",
+    "description",
+    "nodes",
+    "edges",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 3
+    },
+    "flowId": {
+      "$ref": "#/$defs/flowId"
+    },
+    "version": {
+      "$ref": "#/$defs/semver"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "nodes": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "inputSchema": {
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object"
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pluginVersion": {
+          "$ref": "#/$defs/semver"
+        },
+        "dshVersion": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "examples": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "readme": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "createdAt": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "updatedAt": {
+      "type": "string",
+      "maxLength": 64
+    }
+  },
+  "$defs": {
+    "flowId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "nodeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+    },
+    "portId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,31}$"
+    },
+    "skillName": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "port": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "policy"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/portId"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "policy": {
+          "type": "string"
+        }
+      }
+    },
+    "inputPort": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/port"
+        },
+        {
+          "properties": {
+            "policy": {
+              "enum": [
+                "each",
+                "all"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "outputPort": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/port"
+        },
+        {
+          "properties": {
+            "policy": {
+              "enum": [
+                "all",
+                "roundRobin"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "outputSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "fields",
+        "maxResults"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "text",
+            "json"
+          ]
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+          }
+        },
+        "maxResults": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "targetField": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+          "description": "When present, every result must carry this field and route to that output port; output port policy is ignored."
+        }
+      }
+    },
+    "skillRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "required",
+        "distribution"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/skillName"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "contentHash": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/contentHash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "packageHash": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/contentHash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "archiveHash": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/contentHash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "license": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "licenseFile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "sha256": {
+              "$ref": "#/$defs/contentHash"
+            }
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "distribution": {
+          "const": "referenced"
+        }
+      }
+    },
+    "skillRefKey": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*(?:\\/[a-z0-9]+(?:-[a-z0-9]+)*)?(?:@(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?)?$"
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodeId",
+        "kind",
+        "role",
+        "skillRefs",
+        "prompt",
+        "outputSpec",
+        "defaultOutputPortId",
+        "inputPorts",
+        "outputPorts",
+        "layout",
+        "sessionPolicy"
+      ],
+      "properties": {
+        "nodeId": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "session",
+            "builtin",
+            "human",
+            "supervisor"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "skillRefs": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/skillRefKey"
+          }
+        },
+        "prompt": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "outputSpec": {
+          "$ref": "#/$defs/outputSpec"
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "defaultOutputPortId": {
+          "$ref": "#/$defs/portId"
+        },
+        "inputPorts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/inputPort"
+          }
+        },
+        "outputPorts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/outputPort"
+          }
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "sessionPolicy": {
+          "const": "existing"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "edgeEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodeId",
+        "portId"
+      ],
+      "properties": {
+        "nodeId": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "portId": {
+          "$ref": "#/$defs/portId"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "from",
+        "to",
+        "mode",
+        "order",
+        "instruction"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+        },
+        "from": {
+          "$ref": "#/$defs/edgeEndpoint"
+        },
+        "to": {
+          "$ref": "#/$defs/edgeEndpoint"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "hard",
+            "returnable"
+          ]
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "instruction": {
+          "type": "string",
+          "maxLength": 10000
+        },
+        "mapping": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "flowContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 3
+        },
+        "nodes": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/edge"
+          }
+        },
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "requirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dshVersion": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "notes": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          }
+        }
+      }
+    }
+  }
+}
