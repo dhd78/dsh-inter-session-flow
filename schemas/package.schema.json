@@ -1,0 +1,353 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.dsh/inter-session-flow/package.schema.json",
+  "title": "Inter-session Flow Package",
+  "description": "Single-file portable flow package. It must not contain session ids, cwd, session titles, secrets, or run history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "packageVersion",
+    "manifest",
+    "flow",
+    "bindingsTemplate",
+    "examples",
+    "tests",
+    "readme",
+    "integrity"
+  ],
+  "properties": {
+    "packageVersion": {
+      "const": 2
+    },
+    "manifest": {
+      "$ref": "#/$defs/manifest"
+    },
+    "flow": {
+      "$ref": "flow.schema.json#/$defs/flowContent"
+    },
+    "bindingsTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "bindings"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    "examples": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/$defs/example"
+      }
+    },
+    "tests": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "mode",
+          "expect"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "import",
+              "preflight",
+              "publish",
+              "unit"
+            ]
+          },
+          "expect": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      }
+    },
+    "readme": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "specVersion",
+        "flowHash"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "sha256"
+        },
+        "specVersion": {
+          "const": 1
+        },
+        "flowHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "Hash of the canonical package JSON (single file), excluding integrity itself. Not the Skill package file-list hash."
+        },
+        "archiveHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "skillRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "required",
+        "distribution"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "provider": {
+          "type": "string",
+          "maxLength": 120,
+          "pattern": "^[a-z0-9]+(?:[-_][a-z0-9]+)*$"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "contentHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "packageHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "archiveHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "license": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "licenseFile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "maxLength": 500,
+              "pattern": "^(?![A-Za-z]:)(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "distribution": {
+          "const": "referenced"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "license": {
+                "not": {
+                  "const": "TBD"
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "licenseFile"
+            ]
+          }
+        }
+      ]
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flowId",
+        "flowVersion",
+        "title",
+        "description",
+        "createdAt",
+        "pluginVersion",
+        "templateSpecVersion",
+        "skillLocks"
+      ],
+      "properties": {
+        "flowId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "flowVersion": {
+          "$ref": "#/$defs/semver"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "license": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "licenseFile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "maxLength": 500,
+              "pattern": "^(?![A-Za-z]:)(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "pluginVersion": {
+          "$ref": "#/$defs/semver"
+        },
+        "templateSpecVersion": {
+          "const": 1
+        },
+        "skillLocks": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/skillRef"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "license": {
+                "not": {
+                  "const": "TBD"
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "licenseFile"
+            ]
+          }
+        }
+      ]
+    },
+    "example": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "input"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "input": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "expected": {
+          "type": "string",
+          "maxLength": 20000
+        }
+      }
+    }
+  }
+}
