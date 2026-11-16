@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.dsh/inter-session-flow/binding.schema.json",
+  "title": "Inter-session Flow Local Binding",
+  "description": "Local-only mapping from line node ids to this machine's sessions. Never export this file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "flowId",
+    "flowVersion",
+    "nodes",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "flowId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "flowVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/boundNode"
+      }
+    },
+    "layoutOverrides": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "revision": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "updatedAt": {
+      "type": "string",
+      "maxLength": 64
+    }
+  },
+  "$defs": {
+    "boundNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "sessionTitle": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "cwd": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "boundAt": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    }
+  }
+}
