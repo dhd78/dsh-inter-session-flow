@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-inter-session-flow',
+  id: '@local/dsh-inter-session-flow',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -13,6 +13,16 @@ window.__ModuleLoader__.load({
     const API_SESSIONS = '/api/inter-session-flow/sessions'
     const API_RUN = '/api/inter-session-flow/run'
     const API_RUN_STOP = '/api/inter-session-flow/run/stop'
+    const API_RUN_RETRY = '/api/inter-session-flow/run/retry'
+    const API_RUN_RESUME = '/api/inter-session-flow/run/resume'
+    const API_RUN_RECONCILE = '/api/inter-session-flow/run/reconcile'
+    const API_RUN_ADOPT = '/api/inter-session-flow/run/adopt'
+    const API_RUN_ABANDON = '/api/inter-session-flow/run/abandon'
+    const API_RUNS = '/api/inter-session-flow/runs'
+    const API_FLOWS = '/api/inter-session-flow/flows'
+    const API_IMPORT = '/api/inter-session-flow/import'
+    const API_IMPORT_PREVIEW = '/api/inter-session-flow/import/preview'
+    const API_SKILLS = '/api/inter-session-flow/skills'
     const THEMES = ['graphite', 'mist', 'pine', 'amber', 'violet', 'paper']
 
     const emptyGraph = () => ({
@@ -165,6 +175,22 @@ window.__ModuleLoader__.load({
       const statusText = (value) => t(`status_${value}`) || value
       const [graph, setGraph] = useState(emptyGraph)
       const [sessions, setSessions] = useState([])
+      const [view, setView] = useState('library')
+      const [flows, setFlows] = useState([])
+      const [flowsLoading, setFlowsLoading] = useState(true)
+      const [libraryError, setLibraryError] = useState('')
+      const [newFlowTitle, setNewFlowTitle] = useState('')
+      const [flowMeta, setFlowMeta] = useState(null)
+      const [menuFlowId, setMenuFlowId] = useState(null)
+      const [skills, setSkills] = useState([])
+      const [skillsLoading, setSkillsLoading] = useState(false)
+      const [skillsLoaded, setSkillsLoaded] = useState(false)
+      const [skillQuery, setSkillQuery] = useState('')
+      const [skillsOpen, setSkillsOpen] = useState(false)
+      const [importPreview, setImportPreview] = useState(null)
+      const [importBusy, setImportBusy] = useState(false)
+      const [preflightResult, setPreflightResult] = useState(null)
+      const [reconcileResult, setReconcileResult] = useState(null)
       const [mode, setMode] = useState('node')
       const [theme, setTheme] = useState(() => {
         try {
@@ -190,12 +216,14 @@ window.__ModuleLoader__.load({
       const [startNodeId, setStartNodeId] = useState('')
       const [startTouched, setStartTouched] = useState(false)
       const [run, setRun] = useState(null)
+      const [runHistory, setRunHistory] = useState([])
       const [runBusy, setRunBusy] = useState(false)
       const [runError, setRunError] = useState('')
       const [runWarning, setRunWarning] = useState(null)
       const graphRef = useRef(emptyGraph())
       const dragRef = useRef(null)
       const suppressClickRef = useRef(false)
+      const fileInputRef = useRef(null)
       const [camera, setCamera] = useState({ x: 30, y: 30, zoom: 1 })
       const cameraRef = useRef(camera)
       const panRef = useRef(null)
@@ -230,27 +258,178 @@ window.__ModuleLoader__.load({
         setGraph(next)
       }
 
-      useEffect(() => {
-        let alive = true
-        const load = async () => {
-          try {
-            const graphResponse = await fetch(API_GRAPH, { cache: 'no-store' })
-            const graphValue = await readJson(graphResponse)
-            if (alive) {
-              const loaded = graphValue.graph || emptyGraph()
-              setGraphValue(loaded)
-              const viewport = loaded.viewport
-              if (viewport && Number.isFinite(viewport.x) && Number.isFinite(viewport.y) && Number.isFinite(viewport.zoom)) {
-                setCameraValue({ x: viewport.x, y: viewport.y, zoom: clamp(viewport.zoom, 0.35, 2.5) })
-              }
-            }
-          } catch (error) {
-            if (alive) setStatus(`${t('loadError')}: ${error.message}`)
-          }
+      const loadFlows = async () => {
+        setFlowsLoading(true)
+        setLibraryError('')
+        try {
+          const response = await fetch(API_FLOWS, { cache: 'no-store' })
+          const value = await readJson(response)
+          setFlows(Array.isArray(value.flows) ? value.flows : [])
+        } catch (error) {
+          setLibraryError(String(error?.message || error))
+        } finally {
+          setFlowsLoading(false)
         }
-        load()
-        return () => { alive = false }
+      }
+
+      const loadSkills = async (sessionId) => {
+        setSkillsLoading(true)
+        try {
+          const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''
+          const response = await fetch(`${API_SKILLS}${query}`, { cache: 'no-store' })
+          const value = await readJson(response)
+          setSkills(Array.isArray(value.skills) ? value.skills : [])
+          setSkillsLoaded(true)
+        } catch {
+          setSkills([])
+          setSkillsLoaded(true)
+        } finally {
+          setSkillsLoading(false)
+        }
+      }
+
+      const loadRunHistory = async () => {
+        try {
+          const response = await fetch(API_RUNS, { cache: 'no-store' })
+          const value = await readJson(response)
+          setRunHistory(Array.isArray(value.runs) ? value.runs : [])
+        } catch {
+          setRunHistory([])
+        }
+      }
+
+      const openRunHistory = async (runId) => {
+        try {
+          const response = await fetch(`${API_RUNS}/${encodeURIComponent(runId)}`, { cache: 'no-store' })
+          const value = await readJson(response)
+          if (value.run) setRun(value.run)
+        } catch (error) {
+          setRunError(String(error.message || error))
+        }
+      }
+
+      const retryRunNode = async (jobId) => {
+        setRunBusy(true)
+        setRunError('')
+        try {
+          const response = await fetch(API_RUN_RETRY, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ jobId }),
+          })
+          const value = await readJson(response)
+          if (value.run) setRun(value.run)
+          void loadRunHistory()
+        } catch (error) {
+          setRunError(String(error.message || error))
+        } finally {
+          setRunBusy(false)
+        }
+      }
+
+      const resumeRun = async (runId) => {
+        setRunBusy(true)
+        setRunError('')
+        try {
+          const response = await fetch(API_RUN_RESUME, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ runId }),
+          })
+          const value = await readJson(response)
+          if (value.run) setRun(value.run)
+          void loadRunHistory()
+        } catch (error) {
+          setRunError(String(error.message || error))
+        } finally {
+          setRunBusy(false)
+        }
+      }
+
+      const reconcileRun = async (runId) => {
+        try {
+          const response = await fetch(API_RUN_RECONCILE, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ runId }),
+          })
+          const value = await readJson(response)
+          setReconcileResult({ runId, rows: value.active || [] })
+        } catch (error) {
+          setRunError(String(error.message || error))
+        }
+      }
+
+      const adoptRunNode = async (jobId, runId) => {
+        setRunBusy(true)
+        setRunError('')
+        try {
+          const response = await fetch(API_RUN_ADOPT, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ jobId, runId }),
+          })
+          const value = await readJson(response)
+          if (value.run) setRun(value.run)
+          setReconcileResult(null)
+          void loadRunHistory()
+        } catch (error) {
+          setRunError(String(error.message || error))
+        } finally {
+          setRunBusy(false)
+        }
+      }
+
+      const abandonRunNode = async (jobId, runId) => {
+        setRunBusy(true)
+        setRunError('')
+        try {
+          const response = await fetch(API_RUN_ABANDON, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ jobId, runId }),
+          })
+          const value = await readJson(response)
+          if (value.run) setRun(value.run)
+          setReconcileResult(null)
+          void loadRunHistory()
+        } catch (error) {
+          setRunError(String(error.message || error))
+        } finally {
+          setRunBusy(false)
+        }
+      }
+
+      useEffect(() => {
+        setSkillsOpen(false)
+      }, [selectedNode])
+
+      useEffect(() => {
+        void loadFlows()
+        void loadRunHistory()
       }, [])
+
+      useEffect(() => {
+        if (!menuFlowId) return undefined
+        const close = () => setMenuFlowId(null)
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') setMenuFlowId(null)
+        }
+        document.addEventListener('click', close)
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+          document.removeEventListener('click', close)
+          document.removeEventListener('keydown', onKeyDown)
+        }
+      }, [menuFlowId])
+
+      const selectedSessionId = selectedNode
+        ? (graph.nodes.find((node) => node.id === selectedNode)?.sessionId || '')
+        : ''
+
+      useEffect(() => {
+        void loadSkills(selectedSessionId)
+      }, [selectedSessionId])
 
       useEffect(() => {
         let alive = true
@@ -418,18 +597,284 @@ window.__ModuleLoader__.load({
         return list.slice(0, 120)
       }, [sessions, sessionFilter])
 
+      const applyFlow = (line, binding) => {
+        const bindings = binding?.nodes && typeof binding.nodes === 'object' ? binding.nodes : {}
+        const nodes = (line.nodes || []).map((node) => {
+          const bound = bindings[node.nodeId] || {}
+          return {
+            id: node.nodeId,
+            sessionId: bound.sessionId || '',
+            title: bound.sessionTitle || node.role || '',
+            cwd: bound.cwd || '',
+            prompt: node.prompt || '',
+            outputSpec: node.outputSpec,
+            outputSchema: node.outputSchema || {},
+            skillRefs: Array.isArray(node.skillRefs) ? node.skillRefs : [],
+            defaultOutputPortId: node.defaultOutputPortId,
+            inputPorts: node.inputPorts,
+            outputPorts: node.outputPorts,
+            x: node.layout?.x || 0,
+            y: node.layout?.y || 0,
+          }
+        })
+        const edges = (line.edges || []).map((edge) => ({
+          id: edge.id,
+          from: edge.from,
+          to: edge.to,
+          mode: edge.mode,
+          order: edge.order,
+          instruction: edge.instruction || '',
+        }))
+        const next = {
+          version: 2,
+          updatedAt: Date.now(),
+          viewport: binding?.layoutOverrides?.viewport || { x: 30, y: 30, zoom: 1 },
+          nodes,
+          edges,
+        }
+        setFlowMeta(line)
+        setGraphValue(next)
+        const viewport = next.viewport
+        if (viewport && Number.isFinite(viewport.x) && Number.isFinite(viewport.y) && Number.isFinite(viewport.zoom)) {
+          setCameraValue({ x: viewport.x, y: viewport.y, zoom: clamp(viewport.zoom, 0.35, 2.5) })
+        }
+        setSelectedNode(null)
+        setSelectedEdge(null)
+        setWireFrom(null)
+        setView('canvas')
+      }
+
+      const openFlow = async (flowId) => {
+        setStatus(t('saving'))
+        try {
+          const response = await fetch(`${API_FLOWS}/${encodeURIComponent(flowId)}`, { cache: 'no-store' })
+          const value = await readJson(response)
+          applyFlow(value.flow, value.binding)
+          setStatus('')
+        } catch (error) {
+          setStatus(`${t('loadError')}: ${error.message}`)
+        }
+      }
+
+      const createFlow = async () => {
+        const title = newFlowTitle.trim() || t('untitledFlow')
+        setStatus(t('saving'))
+        try {
+          const flowId = `flow-${Date.now().toString(36)}`
+          const response = await fetch(API_FLOWS, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              flow: {
+                flowId,
+                version: '1.0.0',
+                title,
+                description: '',
+                nodes: [],
+                edges: [],
+              },
+            }),
+          })
+          const value = await readJson(response)
+          if (value.flow) {
+            setNewFlowTitle('')
+            await openFlow(value.flow.flowId)
+            await loadFlows()
+          }
+        } catch (error) {
+          setStatus(`${t('saveError')}: ${error.message}`)
+        }
+      }
+
+      const importPackageFile = async (event) => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (!file) return
+        setStatus(t('saving'))
+        try {
+          const text = await file.text()
+          const parsed = JSON.parse(text)
+          const response = await fetch(API_IMPORT_PREVIEW, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ package: parsed }),
+          })
+          const value = await response.json()
+          setImportPreview({ package: parsed, checks: value.checks || [], skillStatus: value.skillStatus || [], summary: value.summary || {} })
+          setStatus('')
+        } catch (error) {
+          setStatus(`${t('loadError')}: ${error.message}`)
+        }
+      }
+
+      const confirmImport = async () => {
+        if (!importPreview?.package) return
+        setImportBusy(true)
+        setStatus(t('saving'))
+        try {
+          const response = await fetch(API_IMPORT, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ package: importPreview.package }),
+          })
+          const value = await readJson(response)
+          setImportPreview(null)
+          await loadFlows()
+          if (value.flow) await openFlow(value.flow.flowId)
+          setStatus(value.renamed ? t('importedRenamed') : t('saved'))
+        } catch (error) {
+          setStatus(`${t('loadError')}: ${error.message}`)
+        } finally {
+          setImportBusy(false)
+        }
+      }
+
+      const exportFlowById = async (flowId, version) => {
+        if (!flowId) return
+        setStatus(t('saving'))
+        try {
+          const response = await fetch(`${API_FLOWS}/${encodeURIComponent(flowId)}/export`, {
+            cache: 'no-store',
+          })
+          const value = await readJson(response)
+          const text = JSON.stringify(value.package, null, 2)
+          const blob = new Blob([text], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          const anchor = document.createElement('a')
+          anchor.href = url
+          anchor.download = `${flowId}-${version || 'latest'}.interflow.json`
+          anchor.click()
+          setTimeout(() => URL.revokeObjectURL(url), 1000)
+          setStatus(t('saved'))
+        } catch (error) {
+          setStatus(`${t('saveError')}: ${error.message}`)
+        }
+      }
+
+      const exportFlow = async () => {
+        if (!flowMeta) return
+        await exportFlowById(flowMeta.flowId, flowMeta.version)
+      }
+
+      const renameFlow = async (flowId, currentTitle) => {
+        const title = window.prompt(t('renamePrompt'), currentTitle || '')
+        if (!title || !title.trim()) return
+        setStatus(t('saving'))
+        try {
+          const response = await fetch(`${API_FLOWS}/${encodeURIComponent(flowId)}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ title: title.trim() }),
+          })
+          const value = await readJson(response)
+          if (flowMeta?.flowId === flowId && value.flow) setFlowMeta(value.flow)
+          await loadFlows()
+          setStatus(t('renamed'))
+        } catch (error) {
+          setStatus(`${t('saveError')}: ${error.message}`)
+        }
+      }
+
+      const runPreflight = async () => {
+        if (!flowMeta) return
+        setStatus(t('saving'))
+        try {
+          const response = await fetch(`${API_FLOWS}/${encodeURIComponent(flowMeta.flowId)}/preflight`, {
+            cache: 'no-store',
+          })
+          const value = await response.json()
+          setPreflightResult(value)
+          setStatus('')
+        } catch (error) {
+          setStatus(`${t('loadError')}: ${error.message}`)
+        }
+      }
+
+      const deleteFlow = async (flowId) => {
+        if (!window.confirm(t('deleteFlowConfirm'))) return
+        setStatus(t('saving'))
+        try {
+          const response = await fetch(`${API_FLOWS}/${encodeURIComponent(flowId)}`, {
+            method: 'DELETE',
+          })
+          await readJson(response)
+          if (flowMeta?.flowId === flowId) {
+            setFlowMeta(null)
+            setGraphValue(emptyGraph())
+            setView('library')
+          }
+          await loadFlows()
+          setStatus(t('deleted'))
+        } catch (error) {
+          setStatus(`${t('saveError')}: ${error.message}`)
+        }
+      }
+
+      const graphToFlow = (next) => {
+        if (!flowMeta) return null
+        return {
+          ...flowMeta,
+          nodes: next.nodes.map((node) => ({
+            nodeId: node.id,
+            kind: 'session',
+            role: node.role || node.title || `工位 ${node.id}`,
+            skillRefs: Array.isArray(node.skillRefs) ? node.skillRefs : [],
+            prompt: node.prompt || '',
+            outputSpec: node.outputSpec,
+            outputSchema: node.outputSchema || {},
+            defaultOutputPortId: node.defaultOutputPortId,
+            inputPorts: node.inputPorts,
+            outputPorts: node.outputPorts,
+            layout: { x: node.x, y: node.y },
+            sessionPolicy: 'existing',
+          })),
+          edges: next.edges.map((edge) => ({
+            id: edge.id,
+            from: edge.from,
+            to: edge.to,
+            mode: edge.mode,
+            order: edge.order,
+            instruction: edge.instruction || '',
+          })),
+        }
+      }
+
       const saveGraph = async (next, successMessage = t('saved')) => {
         setGraphValue(next)
+        if (!flowMeta) {
+          setStatus(t('saveError'))
+          return
+        }
         setSaving(true)
         setStatus(t('saving'))
         try {
-          const response = await fetch(API_GRAPH, {
+          const line = graphToFlow(next)
+          const flowResponse = await fetch(`${API_FLOWS}/${encodeURIComponent(flowMeta.flowId)}`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(next),
+            body: JSON.stringify({ flow: line }),
           })
-          const value = await readJson(response)
-          if (value.graph) setGraphValue(value.graph)
+          const flowValue = await readJson(flowResponse)
+          if (flowValue.flow) setFlowMeta(flowValue.flow)
+          const bindings = {}
+          for (const node of next.nodes) {
+            if (!node.sessionId) continue
+            bindings[node.id] = {
+              sessionId: node.sessionId,
+              sessionTitle: node.title || '',
+              cwd: node.cwd || '',
+            }
+          }
+          const bindingResponse = await fetch(`${API_FLOWS}/${encodeURIComponent(flowMeta.flowId)}/binding`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              nodes: bindings,
+              flowVersion: flowValue.flow?.version || flowMeta.version,
+              layoutOverrides: { viewport: next.viewport },
+            }),
+          })
+          await readJson(bindingResponse)
           setStatus(successMessage)
         } catch (error) {
           setStatus(`${t('saveError')}: ${error.message}`)
@@ -440,17 +885,16 @@ window.__ModuleLoader__.load({
 
       const addNode = () => {
         const session = sessions.find((item) => item.id === sessionChoice)
-        if (!session) return
-        if (graph.nodes.some((node) => node.sessionId === session.id)) {
+        if (session && graph.nodes.some((node) => node.sessionId === session.id)) {
           setStatus(t('duplicateSession'))
           return
         }
         const index = graph.nodes.length
         const node = {
           id: uid('n_'),
-          sessionId: session.id,
-          title: labelForSession(session),
-          cwd: session.cwd || '',
+          sessionId: session?.id || '',
+          title: session ? labelForSession(session) : t('newWorkstation'),
+          cwd: session?.cwd || '',
           prompt: '',
           outputSpec: { mode: 'text', fields: ['x'], maxResults: 3 },
           defaultOutputPortId: 'out_1',
@@ -680,6 +1124,32 @@ window.__ModuleLoader__.load({
       const selectedNodeValue = selectedNode
         ? graph.nodes.find((node) => node.id === selectedNode) || null
         : null
+      const selectedSkillRefs = Array.isArray(selectedNodeValue?.skillRefs) ? selectedNodeValue.skillRefs : []
+      const skillRefInfo = (ref) => {
+        const base = String(ref || '').split('@')[0]
+        const slash = base.indexOf('/')
+        return slash > 0
+          ? { provider: base.slice(0, slash), name: base.slice(slash + 1) }
+          : { provider: '', name: base }
+      }
+      const skillName = (ref) => skillRefInfo(ref).name
+      const skillRefMatches = (skill, ref) => {
+        const info = skillRefInfo(ref)
+        return info.name === skill.name && (!info.provider || info.provider === skill.provider)
+      }
+      const missingSkillRefs = (node) => {
+        if (!skillsLoaded) return []
+        return (Array.isArray(node?.skillRefs) ? node.skillRefs : [])
+          .filter((ref) => !skills.some((skill) => skillRefMatches(skill, ref)))
+      }
+      const missingSelectedSkills = selectedNodeValue && !skillsLoading
+        ? selectedSkillRefs.filter((ref) => !skills.some((skill) => skillRefMatches(skill, ref)))
+        : []
+      const filteredSkills = skills.filter((skill) => {
+        const needle = skillQuery.trim().toLowerCase()
+        if (!needle) return true
+        return `${skill.name} ${skill.description} ${skill.source} ${skill.provider}`.toLowerCase().includes(needle)
+      })
 
       const updateNodePrompt = (nodeId, value) => {
         const next = {
@@ -693,6 +1163,60 @@ window.__ModuleLoader__.load({
 
       const commitNodePrompt = () => {
         void saveGraph(graphRef.current)
+      }
+
+      const bindNodeSession = (nodeId, sessionId) => {
+        const session = sessions.find((item) => item.id === sessionId)
+        const next = {
+          ...graphRef.current,
+          nodes: graphRef.current.nodes.map((node) => (
+            node.id === nodeId && session
+              ? { ...node, sessionId: session.id, title: labelForSession(session), cwd: session.cwd || '' }
+              : node
+          )),
+        }
+        void saveGraph(next)
+      }
+
+      const unbindNodeSession = (nodeId) => {
+        const next = {
+          ...graphRef.current,
+          nodes: graphRef.current.nodes.map((node) => (
+            node.id === nodeId ? { ...node, sessionId: '' } : node
+          )),
+        }
+        void saveGraph(next)
+      }
+
+      const toggleNodeSkill = (nodeId, ref) => {
+        const next = {
+          ...graphRef.current,
+          nodes: graphRef.current.nodes.map((node) => {
+            if (node.id !== nodeId) return node
+            const current = Array.isArray(node.skillRefs) ? node.skillRefs : []
+            const skillRefs = current.includes(ref)
+              ? current.filter((item) => item !== ref)
+              : [...current, ref]
+            return { ...node, skillRefs }
+          }),
+        }
+        void saveGraph(next)
+      }
+
+      const selectAllNodeSkills = (nodeId) => {
+        const keys = filteredSkills.map((skill) => skill.id || skill.name)
+        const current = selectedSkillRefs
+        const allSelected = keys.length > 0 && keys.every((key) => current.includes(key))
+        const nextRefs = allSelected
+          ? current.filter((ref) => !keys.includes(ref))
+          : [...new Set([...current, ...keys])]
+        const next = {
+          ...graphRef.current,
+          nodes: graphRef.current.nodes.map((node) => (
+            node.id === nodeId ? { ...node, skillRefs: nextRefs } : node
+          )),
+        }
+        void saveGraph(next)
       }
 
       const addNodePort = (nodeId, direction) => {
@@ -917,10 +1441,13 @@ window.__ModuleLoader__.load({
               graph: graphRef.current,
               input: runInput,
               startNodeId,
+              flowId: flowMeta?.flowId || '',
+              flowVersion: flowMeta?.version || '',
             }),
           })
           const value = await readJson(response)
           setRun(value.run || null)
+          void loadRunHistory()
         } catch (error) {
           setRunError(String(error.message || error))
         } finally {
@@ -949,6 +1476,7 @@ window.__ModuleLoader__.load({
           const response = await fetch(API_RUN_STOP, { method: 'POST' })
           const value = await readJson(response)
           if (value.run) setRun(value.run)
+          void loadRunHistory()
         } catch (error) {
           setRunError(String(error.message || error))
         } finally {
@@ -956,12 +1484,215 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const renderImportPreview = () => {
+        if (!importPreview) return null
+        const errors = (importPreview.checks || []).filter((item) => item.status === 'error')
+        const skillIssues = (importPreview.skillStatus || []).filter((item) => item.status !== 'pass')
+        return h('div', {
+          className: 'sf-modal-backdrop',
+          onClick: () => { if (!importBusy) setImportPreview(null) },
+        },
+          h('div', { className: 'sf-modal', onClick: (event) => event.stopPropagation() },
+            h('div', { className: 'sf-modal-title' }, t('importPreview')),
+            h('div', { className: 'sf-hint' },
+              `${importPreview.summary.title || importPreview.summary.flowId || '-'} · ` +
+              `${importPreview.summary.flowId || '-'}@${importPreview.summary.flowVersion || '-'} · ` +
+              `${importPreview.summary.nodeCount || 0} ${t('nodes')} · ${importPreview.summary.skillCount || 0} Skill`),
+            errors.length
+              ? h('div', { className: 'sf-warning' }, `${t('importErrors')}: ${errors.length}`)
+              : h('div', { className: 'sf-hint' }, t('importChecksPass')),
+            h('div', { className: 'sf-import-checks' },
+              ...(importPreview.checks || []).filter((item) => item.status !== 'pass').slice(0, 12).map((item) => (
+                h('div', { key: item.id, className: item.status === 'error' ? 'sf-warning' : 'sf-hint' },
+                  `${item.status}: ${item.id}`)
+              )),
+              ...skillIssues.slice(0, 12).map((item) => h('div', {
+                key: `skill-${item.id}`,
+                className: item.status === 'error' ? 'sf-warning' : 'sf-hint',
+              }, `${item.status}: ${item.id}`))
+            ),
+            h('div', { className: 'sf-mode-row' },
+              h('button', {
+                className: 'sf-btn',
+                type: 'button',
+                disabled: importBusy,
+                onClick: () => setImportPreview(null),
+              }, t('cancel')),
+              h('button', {
+                className: 'sf-btn sf-btn-primary',
+                type: 'button',
+                disabled: importBusy || errors.length > 0,
+                onClick: confirmImport,
+              }, importBusy ? t('saving') : t('confirmImport'))
+            )
+          )
+        )
+      }
+
+      if (view === 'library') {
+        return h('div', {
+          className: `sf-root sf-theme-${theme}`,
+          style: { display: 'block', overflow: 'auto' },
+        },
+          h('style', null, CSS),
+          h('div', { className: 'sf-library' },
+            h('div', { className: 'sf-library-head' },
+              h('h1', null, t('library')),
+              h('div', { className: 'sf-hint' }, t('libraryHint'))
+            ),
+            h('div', { className: 'sf-library-actions' },
+              h('input', {
+                type: 'text',
+                value: newFlowTitle,
+                placeholder: t('flowName'),
+                onInput: (event) => setNewFlowTitle(event.target.value),
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') void createFlow()
+                },
+              }),
+              h('button', { className: 'sf-btn sf-primary', type: 'button', onClick: createFlow },
+                t('newFlow')),
+              h('button', { className: 'sf-btn', type: 'button', onClick: loadFlows },
+                t('refresh')),
+              h('button', {
+                className: 'sf-btn',
+                type: 'button',
+                onClick: () => fileInputRef.current?.click?.(),
+              }, t('importFlow')),
+              h('input', {
+                ref: fileInputRef,
+                type: 'file',
+                accept: '.json,.interflow.json,application/json',
+                style: { display: 'none' },
+                onChange: importPackageFile,
+              }),
+              h('div', { className: 'sf-lang-row' },
+                h('button', {
+                  className: `sf-lang ${language === 'zh' ? 'is-active' : ''}`,
+                  type: 'button',
+                  onClick: () => onLanguageChange('zh'),
+                }, '中文'),
+                h('button', {
+                  className: `sf-lang ${language === 'en' ? 'is-active' : ''}`,
+                  type: 'button',
+                  onClick: () => onLanguageChange('en'),
+                }, 'EN')
+              )
+            ),
+            libraryError ? h('div', { className: 'sf-error' }, libraryError) : null,
+            status ? h('div', { className: 'sf-status' }, status) : null,
+            flowsLoading
+              ? h('div', { className: 'sf-library-empty' }, t('loading'))
+              : flows.length
+                ? h('div', { className: 'sf-library-list' },
+                  ...flows.map((line) => h('div', {
+                    key: line.flowId,
+                    className: 'sf-flow-card',
+                    role: 'button',
+                    tabIndex: 0,
+                    onClick: () => {
+                      setMenuFlowId(null)
+                      void openFlow(line.flowId)
+                    },
+                    onKeyDown: (event) => {
+                      if (event.key === 'Enter' || event.key === ' ') void openFlow(line.flowId)
+                    },
+                  },
+                    h('div', { className: 'sf-flow-card-main' },
+                      h('div', { className: 'sf-flow-card-title' }, line.title || line.flowId),
+                      h('div', { className: 'sf-flow-card-meta' },
+                        `${t('flowVersion')} ${line.version} · ${line.nodeCount} ${t('nodes')} · ${line.edgeCount} ${t('edges')}`),
+                      line.description ? h('div', { className: 'sf-flow-card-meta' }, line.description) : null
+                    ),
+                    h('div', { className: 'sf-flow-card-badge' },
+                      line.boundCount ? `${line.boundCount}/${line.nodeCount} ${t('bound')}` : t('unbound')),
+                    h('div', { className: 'sf-flow-card-badge' }, line.flowId),
+                    h('div', { className: 'sf-flow-actions' },
+                      h('button', {
+                        className: 'sf-flow-gear',
+                        type: 'button',
+                        title: t('moreActions'),
+                        'aria-label': t('moreActions'),
+                        'aria-haspopup': 'menu',
+                        'aria-expanded': menuFlowId === line.flowId ? 'true' : 'false',
+                        onClick: (event) => {
+                          event.stopPropagation()
+                          setMenuFlowId((current) => current === line.flowId ? null : line.flowId)
+                        },
+                      }, '⚙'),
+                      menuFlowId === line.flowId ? h('div', {
+                        className: 'sf-flow-menu',
+                        role: 'menu',
+                        onClick: (event) => event.stopPropagation(),
+                      },
+                        h('button', {
+                          className: 'sf-flow-menu-item',
+                          type: 'button',
+                          role: 'menuitem',
+                          onClick: () => {
+                            setMenuFlowId(null)
+                            void renameFlow(line.flowId, line.title)
+                          },
+                        }, t('renameFlow')),
+                        h('button', {
+                          className: 'sf-flow-menu-item',
+                          type: 'button',
+                          role: 'menuitem',
+                          onClick: () => {
+                            setMenuFlowId(null)
+                            void exportFlowById(line.flowId, line.version)
+                          },
+                        }, t('exportFlow')),
+                        h('button', {
+                          className: 'sf-flow-menu-item sf-flow-menu-danger',
+                          type: 'button',
+                          role: 'menuitem',
+                          onClick: () => {
+                            setMenuFlowId(null)
+                            void deleteFlow(line.flowId)
+                          },
+                        }, t('deleteFlow'))
+                      ) : null
+                    )
+                  ))
+                )
+                : h('div', { className: 'sf-library-empty' }, t('noFlows'))
+          ),
+          renderImportPreview()
+        )
+      }
+
       return h('div', { className: `sf-root sf-theme-${theme}` },
         h('style', null, CSS),
         h('aside', { className: 'sf-side' },
+          flowMeta ? h('button', {
+            className: 'sf-side-btn sf-side-btn-primary sf-back-top',
+            type: 'button',
+            onClick: () => {
+              setView('library')
+              void loadFlows()
+            },
+          }, `← ${t('backToLibrary')}`) : null,
           h('div', { className: 'sf-brand' },
-            h('div', { className: 'sf-brand-title' }, t('title')),
-            h('div', { className: 'sf-brand-sub' }, t('positionHint'))
+            h('div', { className: 'sf-brand-title' }, flowMeta?.title || t('title')),
+            h('div', { className: 'sf-brand-sub' }, flowMeta ? `${t('flowVersion')} ${flowMeta.version}` : t('positionHint')),
+            flowMeta ? h('div', { className: 'sf-brand-actions' },
+              h('button', {
+                className: 'sf-side-btn',
+                type: 'button',
+                onClick: () => void runPreflight(),
+              }, t('preflight')),
+              h('button', {
+                className: 'sf-side-btn',
+                type: 'button',
+                onClick: () => void renameFlow(flowMeta.flowId, flowMeta.title),
+              }, t('renameFlow')),
+              h('button', {
+                className: 'sf-side-btn',
+                type: 'button',
+                onClick: exportFlow,
+              }, `${t('exportFlow')} .interflow.json`)
+            ) : null
           ),
           h('section', { className: 'sf-theme-picker' },
             h('label', { className: 'sf-label' }, t('theme')),
@@ -1039,26 +1770,26 @@ window.__ModuleLoader__.load({
               h('button', {
                 className: 'sf-btn sf-btn-primary',
                 type: 'button',
-                disabled: !sessionChoice || saving,
+                disabled: saving,
                 onClick: addNode,
               }, t('add'))
             )
             : mode === 'wire'
               ? h('section', { className: 'sf-section' },
-              h('label', { className: 'sf-label' }, t('lineType')),
+              h('label', { className: 'sf-label' }, t('edgeType')),
               h('div', { className: 'sf-mode-row' },
                 h('button', {
                   className: `sf-mode ${edgeKind === 'hard' ? 'is-active' : ''}`,
                   type: 'button',
                   onClick: () => setEdgeKind('hard'),
-                }, t('hardLine')),
+                }, t('hardEdge')),
                 h('button', {
                   className: `sf-mode ${edgeKind === 'returnable' ? 'is-active' : ''}`,
                   type: 'button',
                   onClick: () => setEdgeKind('returnable'),
-                }, t('returnableLine'))
+                }, t('returnableEdge'))
               ),
-              h('div', { className: 'sf-hint' }, t('lineTypeHint'))
+              h('div', { className: 'sf-hint' }, t('edgeTypeHint'))
             )
               : null,
           h('section', { className: 'sf-section sf-stats' },
@@ -1117,12 +1848,57 @@ window.__ModuleLoader__.load({
                     h('span', null, `${nodeRun.title || nodeRun.nodeId}${nodeRun.inputPortId ? ` · ${nodeRun.inputPortId}` : ''}`),
                     h('span', { className: `sf-run-node-status sf-run-${nodeRun.status}` }, statusText(nodeRun.status))
                   ),
+                  (nodeRun.status === 'error' || nodeRun.status === 'stopped')
+                    ? h('button', {
+                      className: 'sf-btn',
+                      type: 'button',
+                      disabled: runBusy,
+                      onClick: () => {
+                        if (window.confirm(t('retryConfirm'))) void retryRunNode(nodeRun.jobId)
+                      },
+                    }, t('retryNode'))
+                    : null,
                   nodeRun.output
                     ? h('div', { className: 'sf-run-output' }, nodeRun.output.length > 240 ? `${nodeRun.output.slice(0, 240)}…` : nodeRun.output)
                     : null
                 ))
               )
-              : null
+              : null,
+            h('label', { className: 'sf-label' }, t('runHistory')),
+            runHistory.length
+              ? h('div', { className: 'sf-run-history' },
+                ...runHistory.slice(0, 6).map((item) => h('div', {
+                  key: item.id,
+                  className: 'sf-run-history-item',
+                },
+                  h('button', {
+                    className: 'sf-run-history-open',
+                    type: 'button',
+                    onClick: () => void openRunHistory(item.id),
+                  },
+                    h('span', null, `${item.flowId || item.id} · ${statusText(item.status)}`),
+                    h('span', { className: 'sf-hint' }, new Date(item.startedAt).toLocaleString())
+                  ),
+                  h('div', { className: 'sf-run-history-actions' },
+                    item.resumable || item.status === 'running' || item.status === 'interrupted'
+                      ? h('button', {
+                        className: 'sf-btn',
+                        type: 'button',
+                        disabled: runBusy,
+                        onClick: () => void resumeRun(item.id),
+                      }, t('resumeRun'))
+                      : null,
+                    item.status === 'running' || item.status === 'interrupted' || item.status === 'stopped' || item.status === 'error'
+                      ? h('button', {
+                        className: 'sf-btn',
+                        type: 'button',
+                        onClick: () => void reconcileRun(item.id),
+                      }, t('checkActive'))
+                      : null
+                  )
+                ))
+              )
+              : h('div', { className: 'sf-hint' }, t('noRunHistory'))
           )
             : null,
           mode !== 'run'
@@ -1130,6 +1906,82 @@ window.__ModuleLoader__.load({
             selectedNodeValue
               ? h('div', null,
                 h('div', { className: 'sf-inspector-title' }, selectedNodeValue.title || t('boundSession')),
+                h('label', { className: 'sf-label' }, t('bindSession')),
+                h('select', {
+                  className: 'sf-select',
+                  value: selectedNodeValue.sessionId || '',
+                  onChange: (event) => {
+                    if (event.target.value) bindNodeSession(selectedNodeValue.id, event.target.value)
+                    else unbindNodeSession(selectedNodeValue.id)
+                  },
+                },
+                  h('option', { value: '' }, t('unbound')),
+                  ...visibleSessions.map((session) => h('option', {
+                    key: session.id,
+                    value: session.id,
+                  }, labelForSession(session)))
+                ),
+                selectedNodeValue.sessionId
+                  ? h('button', {
+                    className: 'sf-btn',
+                    type: 'button',
+                    onClick: () => unbindNodeSession(selectedNodeValue.id),
+                  }, t('unbindSession'))
+                  : null,
+                h('div', { className: 'sf-skill-head' },
+                  h('button', {
+                    className: 'sf-skill-toggle',
+                    type: 'button',
+                    onClick: () => setSkillsOpen((value) => !value),
+                  }, `${t('skills')} (${selectedSkillRefs.length}) ${skillsOpen ? '▴' : '▾'}`),
+                  h('button', {
+                    className: 'sf-btn sf-skill-all',
+                    type: 'button',
+                    onClick: () => selectAllNodeSkills(selectedNodeValue.id),
+                  }, t('selectAllSkills'))
+                ),
+                selectedSkillRefs.length
+                  ? h('div', { className: 'sf-skill-chips' },
+                    ...selectedSkillRefs.map((ref) => h('button', {
+                      key: ref,
+                      className: 'sf-skill-chip',
+                      type: 'button',
+                      title: t('removeSkill'),
+                      onClick: () => toggleNodeSkill(selectedNodeValue.id, ref),
+                    }, `${missingSelectedSkills.includes(ref) ? '! ' : ''}${ref} ×`))
+                  )
+                  : h('div', { className: 'sf-hint' }, t('noSkillsSelected')),
+                missingSelectedSkills.length
+                  ? h('div', { className: 'sf-warning' }, `${t('missingSkill')}: ${missingSelectedSkills.join(', ')}`)
+                  : null,
+                skillsOpen
+                  ? h('div', { className: 'sf-skill-panel' },
+                    h('input', {
+                      className: 'sf-input',
+                      type: 'text',
+                      value: skillQuery,
+                      placeholder: t('searchSkills'),
+                      onChange: (event) => setSkillQuery(event.target.value),
+                    }),
+                    skillsLoading
+                      ? h('div', { className: 'sf-hint' }, t('detectingSkills'))
+                      : h('div', { className: 'sf-skill-list' },
+                        ...filteredSkills.slice(0, 40).map((skill) => h('label', {
+                          key: `${skill.provider}:${skill.name}`,
+                          className: 'sf-skill-option',
+                        },
+                          h('input', {
+                            type: 'checkbox',
+                            checked: selectedSkillRefs.some((ref) => skillRefMatches(skill, ref)),
+                            onChange: () => toggleNodeSkill(selectedNodeValue.id, skill.id || skill.name),
+                          }),
+                          h('span', { className: 'sf-skill-option-name' }, skill.name),
+                          h('span', { className: 'sf-skill-option-scope' }, skill.scope)
+                        )),
+                        filteredSkills.length ? null : h('div', { className: 'sf-hint' }, t('noSkillsFound'))
+                      )
+                  )
+                  : null,
                 h('label', { className: 'sf-label' }, t('nodePrompt')),
                 h('textarea', {
                   className: 'sf-textarea',
@@ -1146,7 +1998,7 @@ window.__ModuleLoader__.load({
               : selectedEdgeValue
                 ? h('div', null,
                   h('div', { className: 'sf-inspector-title' }, t('edgeType')),
-                  h('div', { className: 'sf-hint' }, selectedEdgeValue.mode === 'returnable' ? t('returnableLine') : t('hardLine')),
+                  h('div', { className: 'sf-hint' }, selectedEdgeValue.mode === 'returnable' ? t('returnableEdge') : t('hardEdge')),
                   h('label', { className: 'sf-label' }, t('edgeInstruction')),
                   h('textarea', {
                     className: 'sf-textarea',
@@ -1249,7 +2101,16 @@ window.__ModuleLoader__.load({
               onClick: (event) => onNodeClick(event, node),
             },
               h('div', { className: 'sf-node-kicker' }, t('boundSession')),
-              h('div', { className: 'sf-node-title' }, node.title || node.sessionId.slice(-8)),
+              h('div', { className: 'sf-node-title' }, node.title || (node.sessionId || '').slice(-8) || t('unbound')),
+              h('div', { className: 'sf-node-flags' },
+                !node.sessionId ? h('span', { className: 'sf-node-flag sf-node-flag-warn' }, `! ${t('unbound')}`) : null,
+                missingSkillRefs(node).length
+                  ? h('span', { className: 'sf-node-flag sf-node-flag-warn' }, `! Skill ${missingSkillRefs(node).length}`)
+                  : null,
+                Array.isArray(node.skillRefs) && node.skillRefs.length
+                  ? h('span', { className: 'sf-node-flag sf-node-flag-skill' }, `Skill ${node.skillRefs.length}`)
+                  : null
+              ),
               ...inputPortsOf(node).map((port, index) => h('div', {
                 key: port.id,
                 className: 'sf-port sf-port-in',
@@ -1309,6 +2170,81 @@ window.__ModuleLoader__.load({
               )
             )
           )
+          : null,
+        preflightResult
+          ? h('div', {
+            className: 'sf-modal-backdrop',
+            onClick: () => setPreflightResult(null),
+          },
+            h('div', { className: 'sf-modal', onClick: (event) => event.stopPropagation() },
+              h('div', { className: 'sf-modal-title' }, `${t('preflight')}: ${preflightResult.ok ? 'PASS' : 'FAIL'}`),
+              ...(preflightResult.checks || []).slice(0, 24).map((item) => h('div', {
+                key: item.id,
+                className: item.status === 'error' ? 'sf-warning' : 'sf-hint',
+              }, `${item.status.toUpperCase()} ${item.id}: ${item.message}`)),
+              h('div', { className: 'sf-mode-row' },
+                h('button', { className: 'sf-btn', type: 'button', onClick: () => setPreflightResult(null) }, t('cancel'))
+              )
+            )
+          )
+          : null,
+        reconcileResult
+          ? h('div', {
+            className: 'sf-modal-backdrop',
+            onClick: () => setReconcileResult(null),
+          },
+            h('div', { className: 'sf-modal', onClick: (event) => event.stopPropagation() },
+              h('div', { className: 'sf-modal-title' }, `${t('checkActive')}: ${reconcileResult.runId}`),
+              reconcileResult.rows.length
+                ? reconcileResult.rows.map((row) => {
+                  const canAct = run?.id === reconcileResult.runId
+                  return h('div', {
+                    key: row.jobId,
+                    className: row.state === 'sent-no-output' ? 'sf-warning' : 'sf-hint',
+                  },
+                    h('div', null, `${row.nodeId}/${row.jobId}: ${row.state}${row.sentSeq ? ` · sent #${row.sentSeq}` : ''}`),
+                    row.output
+                      ? h('pre', { className: 'sf-run-output' }, row.output)
+                      : null,
+                    canAct
+                      ? h('div', { className: 'sf-mode-row' },
+                        row.output
+                          ? h('button', {
+                            className: 'sf-btn sf-btn-primary',
+                            type: 'button',
+                            disabled: runBusy,
+                            onClick: () => void adoptRunNode(row.jobId, reconcileResult.runId),
+                          }, t('adoptOutput'))
+                          : null,
+                        row.state !== 'not-sent'
+                          ? h('button', {
+                            className: 'sf-btn',
+                            type: 'button',
+                            disabled: runBusy,
+                            onClick: () => {
+                              setReconcileResult(null)
+                              if (window.confirm(t('retryConfirm'))) void retryRunNode(row.jobId)
+                            },
+                          }, t('retryNode'))
+                          : null,
+                        h('button', {
+                          className: 'sf-btn',
+                          type: 'button',
+                          disabled: runBusy,
+                          onClick: () => {
+                            if (window.confirm(t('abandonConfirm'))) void abandonRunNode(row.jobId, reconcileResult.runId)
+                          },
+                        }, t('abandonBranch'))
+                      )
+                      : h('div', { className: 'sf-hint' }, t('currentRunRequired'))
+                  )
+                })
+                : h('div', { className: 'sf-hint' }, t('noActiveJobs')),
+              h('div', { className: 'sf-mode-row' },
+                h('button', { className: 'sf-btn', type: 'button', onClick: () => setReconcileResult(null) }, t('cancel'))
+              )
+            )
+          )
           : null
     )
     }
@@ -1324,8 +2260,8 @@ window.__ModuleLoader__.load({
         h('rect', { x: 2, y: 8, width: 7, height: 6, rx: 1.5, stroke: 'currentColor', strokeWidth: 1.5 }),
         h('rect', { x: 15, y: 3, width: 7, height: 6, rx: 1.5, stroke: 'currentColor', strokeWidth: 1.5 }),
         h('rect', { x: 15, y: 15, width: 7, height: 6, rx: 1.5, stroke: 'currentColor', strokeWidth: 1.5 }),
-        h('path', { d: 'M9 11h2.5c2 0 2.5-2 3.5-2', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' }),
-        h('path', { d: 'M9 11h2.5c2 0 2.5 2 3.5 2', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })
+        h('path', { d: 'M9 11h2.5c2 0 2.5-2 3.5-2', stroke: 'currentColor', strokeWidth: 1.5, strokeFlowcap: 'round' }),
+        h('path', { d: 'M9 11h2.5c2 0 2.5 2 3.5 2', stroke: 'currentColor', strokeWidth: 1.5, strokeFlowcap: 'round' })
       )
     }
 
@@ -1356,6 +2292,36 @@ window.__ModuleLoader__.load({
       .sf-viewport.is-panning{cursor:grabbing}
       .sf-canvas{position:absolute;left:0;top:0;transform-origin:0 0;background:radial-gradient(circle at 1px 1px,var(--dsw-alias-border-l1) 1px,transparent 0) 0 0/22px 22px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04);will-change:transform}
       .sf-brand-title{font-size:16px;font-weight:650;letter-spacing:.01em}
+      .sf-brand{display:flex;flex-direction:column;gap:6px;padding-bottom:12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+      .sf-brand-actions{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+      .sf-side-btn{display:block;width:100%;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:7px 10px;text-align:left;cursor:pointer}
+      .sf-side-btn:hover{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2)}
+      .sf-side-btn-primary{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,var(--dsw-alias-bg-layer-1))}
+      .sf-back-top{margin-bottom:10px;text-align:center}
+      .sf-library{width:min(1050px,100%);margin:0 auto;padding:34px 32px;display:flex;flex-direction:column;gap:20px}
+      .sf-library-head{display:flex;flex-direction:column;gap:5px}
+      .sf-library-head h1{font-size:22px;margin:0;font-weight:700}
+      .sf-library-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+      .sf-library-actions input{flex:1;min-width:220px;height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);padding:0 10px;font:inherit}
+      .sf-library-list{display:flex;flex-direction:column;gap:8px}
+      .sf-flow-card{position:relative;display:flex;align-items:center;gap:14px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:14px 16px;cursor:pointer;text-align:left}
+      .sf-flow-card:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}
+      .sf-flow-card-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+      .sf-flow-card-title{font-size:14px;font-weight:650}
+      .sf-flow-card-meta{font-size:11px;color:var(--dsw-alias-label-secondary)}
+      .sf-flow-card-badge{font-size:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:3px 8px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
+      .sf-flow-actions{position:relative;flex:none;display:flex;align-items:center}
+      .sf-flow-gear{width:28px;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:15px;line-height:1;cursor:pointer;padding:0}
+      .sf-flow-gear:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}
+      .sf-flow-gear[aria-expanded="true"]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+      .sf-flow-menu{position:absolute;right:0;top:36px;z-index:30;min-width:132px;padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-layer-2);box-shadow:0 8px 24px rgba(0,0,0,.22);display:flex;flex-direction:column;gap:3px}
+      .sf-flow-menu-item{border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:7px 10px;text-align:left;cursor:pointer;white-space:nowrap}
+      .sf-flow-menu-item:hover{background:var(--dsw-alias-bg-layer-1)}
+      .sf-flow-menu-danger{color:var(--dsw-alias-state-error-primary)}
+      .sf-flow-menu-danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}
+      .sf-library-empty{padding:34px 0;color:var(--dsw-alias-label-secondary);font-size:12px}
+      .sf-back{background:transparent;border:0;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;padding:0;text-align:left}
+      .sf-back:hover{color:var(--dsw-alias-label-primary)}
       .sf-brand-sub,.sf-hint,.sf-status{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5}
       .sf-section{display:flex;flex-direction:column;gap:7px}
       .sf-label{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}
@@ -1374,6 +2340,17 @@ window.__ModuleLoader__.load({
       .sf-zoom-value{font-size:10px;font-variant-numeric:tabular-nums}
       .sf-zoom-btn{padding:2px 7px;font-size:10px;min-width:48px}
       .sf-inspector{border-top:1px solid var(--dsw-alias-border-l1);padding-top:12px}
+      .sf-skill-chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px}
+      .sf-skill-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:6px}
+      .sf-skill-toggle{border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;font-weight:600;text-align:left;padding:4px 0;cursor:pointer}
+      .sf-skill-all{font-size:10px;padding:3px 7px}
+      .sf-skill-panel{display:flex;flex-direction:column;gap:4px;margin-top:3px}
+      .sf-skill-chip{border:1px solid var(--dsw-alias-brand-primary);border-radius:999px;background:transparent;color:var(--dsw-alias-brand-primary);font:inherit;font-size:10px;padding:2px 7px;cursor:pointer}
+      .sf-skill-list{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:4px}
+      .sf-skill-option{display:flex;align-items:center;gap:5px;font-size:11px;padding:3px 4px;border-radius:5px;cursor:pointer}
+      .sf-skill-option:hover{background:var(--dsw-alias-bg-layer-2)}
+      .sf-skill-option-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .sf-skill-option-scope{font-size:9px;color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:1px 5px}
       .sf-inspector-title{font-weight:600;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .sf-inspector-path{font-size:10px;color:var(--dsw-alias-label-secondary);word-break:break-all;margin-bottom:8px}
       .sf-status{margin-top:auto;padding-top:8px;min-height:16px}
@@ -1390,7 +2367,11 @@ window.__ModuleLoader__.load({
       .sf-node.is-selected{border-color:var(--dsw-alias-brand-primary);border-width:3px;box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 20%,transparent)}
       .sf-node.is-wire-source{border-style:dashed;border-color:var(--dsw-alias-brand-primary)}
       .sf-node-kicker{font-size:9px;letter-spacing:.06em;color:var(--dsw-alias-label-secondary);text-transform:uppercase}
-      .sf-node-title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+      .sf-node-title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px;padding-right:38px}
+      .sf-node-flags{position:absolute;top:6px;right:6px;display:flex;align-items:center;gap:3px;z-index:2;pointer-events:none}
+      .sf-node-flag{font-size:9px;line-height:1.2;border-radius:999px;padding:2px 5px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
+      .sf-node-flag-warn{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+      .sf-node-flag-skill{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
       .sf-port{position:absolute;width:22px;height:22px;margin-top:-11px;display:flex;align-items:center;justify-content:center;cursor:crosshair;z-index:3;background:transparent}
       .sf-port::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--dsw-alias-bg-layer-0);border:2px solid var(--dsw-alias-border-l2);box-sizing:border-box}
       .sf-port:hover::after{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary)}
@@ -1404,6 +2385,12 @@ window.__ModuleLoader__.load({
       .sf-error-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
       .sf-error{color:var(--dsw-alias-state-error-primary);font-size:10px;line-height:1.4;word-break:break-all;flex:1;min-width:120px}
       .sf-run-box{border-top:1px solid var(--dsw-alias-border-l1);padding-top:12px}
+      .sf-run-history{display:flex;flex-direction:column;gap:3px;max-height:180px;overflow:auto}
+      .sf-run-history-item{display:flex;align-items:stretch;gap:4px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;padding:3px}
+      .sf-run-history-open{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;padding:4px;text-align:left;cursor:pointer}
+      .sf-run-history-open:hover{background:var(--dsw-alias-bg-layer-2)}
+      .sf-run-history-actions{display:flex;flex-direction:column;gap:2px;justify-content:center}
+      .sf-run-history-actions .sf-btn{font-size:9px;padding:3px 5px}
       .sf-run-status{display:flex;flex-direction:column;gap:4px;max-height:150px;overflow:auto}
       .sf-run-title{font-size:11px;font-weight:600}
       .sf-run-line,.sf-run-node{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:var(--dsw-alias-label-secondary)}
@@ -1438,6 +2425,13 @@ window.__ModuleLoader__.load({
         const dictionaries = {
           zh: {
             title: '会话间流程', addNode: '添加会话节点', selectSession: '选择已有会话', add: '添加',
+            library: '流程图库', libraryHint: '新建、打开或导入一条可复制的流程图',
+            newFlow: '新建流程图', flowName: '流程图名称', untitledFlow: '未命名流程图',
+            noFlows: '还没有流程图。先新建一条，或从模板开始。',
+            refresh: '刷新', loading: '读取中…', flowVersion: '版本', bound: '已绑定', unbound: '未绑定',
+            backToLibrary: '流程图库', importFlow: '导入流程图包', exportFlow: '导出',
+            deleteFlow: '删除', deleteFlowConfirm: '确定删除这张流程图？会移到回收目录，不直接抹掉。', deleted: '已删除',
+            renameFlow: '重命名', renamePrompt: '输入新的流程图名称', renamed: '已重命名', moreActions: '更多操作',
             searchSessions: '搜索会话', sessions: '会话',
             loadSessionsError: '会话列表读取失败', retry: '重试', loadingSessions: '正在读取会话…',
             moveMode: '移动模式', nodeMode: '节点模式', wireMode: '连线模式', runMode: '运行模式',
@@ -1449,8 +2443,8 @@ window.__ModuleLoader__.load({
             theme_amber: '琥珀',
             theme_violet: '紫罗兰',
             theme_paper: '纸白',
-            lineType: '画线种类', lineTypeHint: '先选类型，再点起点和目标节点',
-            hardLine: '硬性输出线', returnableLine: '可回退输出线',
+            edgeType: '画线种类', edgeTypeHint: '先选类型，再点起点和目标节点',
+            hardEdge: '硬性输出线', returnableEdge: '可回退输出线',
             inputPorts: '输入口', outputPorts: '输出口',
             inputEach: '每条线一次', inputAll: '全部到齐', outputAll: '全部输出', outputRoundRobin: '轮询输出',
             outputFormat: '输出格式', outputText: '文本', outputJson: 'JSON results', maxResults: '最多结果',
@@ -1465,6 +2459,19 @@ window.__ModuleLoader__.load({
             cannotConnect: '不能这样连接', duplicateSession: '这个会话已经在流程里了。',
             duplicateEdge: '两个节点之间已经有连接了。', cycle: '不能创建环。',
             selfEdge: '不能连接到自己。', canvas: '流程画布', boundSession: '绑定会话',
+            bindSession: '会话绑定', unbindSession: '解绑会话',
+            skills: 'Skills', noSkillsSelected: '未选择 Skill', removeSkill: '移除 Skill',
+            newWorkstation: '新工位', selectAllSkills: '全选可用 Skill',
+            missingSkill: '未找到 Skill', searchSkills: '搜索 Skill', detectingSkills: '正在检测 Skill…',
+            noSkillsFound: '没有检测到可用 Skill',
+            importPreview: '导入预览', importChecksPass: '结构检查通过，可以导入。',
+            importErrors: '导入前有问题', confirmImport: '确认导入', importedRenamed: '已导入副本',
+            runHistory: '历史运行', noRunHistory: '还没有历史运行', retryNode: '重试并继续下游',
+            retryConfirm: '重试会重新运行该节点并继续下游；如果下游已收到旧结果，可能产生重复。继续？',
+            resumeRun: '恢复运行', checkActive: '检查中断节点', noActiveJobs: '没有需要人工确认的运行节点',
+            adoptOutput: '采纳并继续', abandonBranch: '放弃分支',
+            abandonConfirm: '放弃该分支后该节点不会继续；确定？',
+            currentRunRequired: '该历史运行已不在当前进程，不能直接操作；可查看输出或恢复运行。', preflight: '预检',
             positionHint: '节点模式：拖动节点，点击节点编辑属性。', noSelection: '选中节点或连接以查看属性。',
             resetView: '重置视图',
             startNode: '起始节点', noNodesShort: '没有节点', startNodeHint: '默认从没有上游连接的根节点开始', runInput: '运行输入', runInputHint: '发给起始节点的话',
@@ -1481,6 +2488,13 @@ window.__ModuleLoader__.load({
           },
           en: {
             title: 'Inter-session flow', addNode: 'Add session node', selectSession: 'Select an existing session', add: 'Add',
+            library: 'Flow library', libraryHint: 'Create, open, or import a reusable flow',
+            newFlow: 'New flow', flowName: 'Flow name', untitledFlow: 'Untitled flow',
+            noFlows: 'No flows yet. Create one or start from a template.',
+            refresh: 'Refresh', loading: 'Loading…', flowVersion: 'Version', bound: 'bound', unbound: 'unbound',
+            backToLibrary: 'Flow library', importFlow: 'Import flow package', exportFlow: 'Export',
+            deleteFlow: 'Delete', deleteFlowConfirm: 'Delete this flow? It will be moved to the trash directory, not erased.', deleted: 'Deleted',
+            renameFlow: 'Rename', renamePrompt: 'Enter a new flow name', renamed: 'Renamed', moreActions: 'More actions',
             searchSessions: 'Search sessions', sessions: 'sessions',
             loadSessionsError: 'Could not load sessions', retry: 'Retry', loadingSessions: 'Loading sessions…',
             moveMode: 'Move mode', nodeMode: 'Node mode', wireMode: 'Wire mode', runMode: 'Run mode',
@@ -1492,10 +2506,10 @@ window.__ModuleLoader__.load({
             theme_amber: 'Amber',
             theme_violet: 'Violet',
             theme_paper: 'Paper',
-            hardLine: 'Hard output line', returnableLine: 'Returnable output line',
-            lineType: 'Line type', lineTypeHint: 'Pick a type first, then click source and target',
+            hardEdge: 'Hard output line', returnableEdge: 'Returnable output line',
+            edgeType: 'Edge type', edgeTypeHint: 'Pick a type first, then click source and target',
             inputPorts: 'Inputs', outputPorts: 'Outputs',
-            inputEach: 'Per line', inputAll: 'Wait for all', outputAll: 'All lines', outputRoundRobin: 'Round-robin',
+            inputEach: 'Per line', inputAll: 'Wait for all', outputAll: 'All flows', outputRoundRobin: 'Round-robin',
             outputFormat: 'Output format', outputText: 'Text', outputJson: 'JSON results', maxResults: 'Max results',
             defaultOutputPort: 'Default output', defaultOutputHint: 'A result target overrides this; otherwise output goes here',
             removePort: 'Remove port', portInUse: 'This port is still connected; delete its edges first.',
@@ -1508,6 +2522,19 @@ window.__ModuleLoader__.load({
             cannotConnect: 'Cannot connect these nodes', duplicateSession: 'That session is already in the flow.',
             duplicateEdge: 'A connection already exists between these nodes.', cycle: 'Cycles are not allowed.',
             selfEdge: 'A node cannot connect to itself.', canvas: 'Flow canvas', boundSession: 'Bound session',
+            bindSession: 'Session binding', unbindSession: 'Unbind session',
+            skills: 'Skills', noSkillsSelected: 'No skill selected', removeSkill: 'Remove skill',
+            newWorkstation: 'New workstation', selectAllSkills: 'Select all available',
+            missingSkill: 'Skill not found', searchSkills: 'Search skills', detectingSkills: 'Detecting skills…',
+            noSkillsFound: 'No available skills detected',
+            importPreview: 'Import preview', importChecksPass: 'Structure checks passed. Ready to import.',
+            importErrors: 'Problems before import', confirmImport: 'Import', importedRenamed: 'Imported as a copy',
+            runHistory: 'Run history', noRunHistory: 'No run history yet', retryNode: 'Retry with downstream',
+            retryConfirm: 'This reruns the node and continues downstream. If downstream already received the old result, duplicates may occur. Continue?',
+            resumeRun: 'Resume run', checkActive: 'Check interrupted nodes', noActiveJobs: 'No active jobs need review',
+            adoptOutput: 'Adopt and continue', abandonBranch: 'Abandon branch',
+            abandonConfirm: 'Abandon this branch? The node will not continue.',
+            currentRunRequired: 'This historical run is no longer in the current process; view its output or resume it.', preflight: 'Preflight',
             positionHint: 'In node mode, drag nodes and click one to edit it.', noSelection: 'Select a node or connection to inspect it.',
             resetView: 'Reset view',
             startNode: 'Start node', noNodesShort: 'No nodes', startNodeHint: 'Defaults to a root node with no incoming edge', runInput: 'Run input', runInputHint: 'Message sent to the start node',
