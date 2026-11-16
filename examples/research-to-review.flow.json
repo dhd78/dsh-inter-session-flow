@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 3,
+  "flowId": "research-to-review",
+  "version": "0.1.0",
+  "title": "Research to review",
+  "description": "A minimal three-stage pipeline: research, draft, review. Import it, bind three existing sessions, then run.",
+  "nodes": [
+    {
+      "nodeId": "research",
+      "kind": "session",
+      "role": "Research",
+      "skillRefs": [],
+      "prompt": "Research the topic in {{input-x}} and return a short brief with sources.",
+      "outputSpec": {
+        "mode": "text",
+        "fields": [],
+        "maxResults": 1
+      },
+      "defaultOutputPortId": "out_1",
+      "inputPorts": [
+        {
+          "id": "in_1",
+          "policy": "each"
+        }
+      ],
+      "outputPorts": [
+        {
+          "id": "out_1",
+          "policy": "all"
+        }
+      ],
+      "layout": {
+        "x": 120,
+        "y": 180
+      },
+      "sessionPolicy": "existing"
+    },
+    {
+      "nodeId": "draft",
+      "kind": "session",
+      "role": "Draft",
+      "skillRefs": [],
+      "prompt": "Turn the brief in {{input-x}} into a 400-word draft.",
+      "outputSpec": {
+        "mode": "text",
+        "fields": [],
+        "maxResults": 1
+      },
+      "defaultOutputPortId": "out_1",
+      "inputPorts": [
+        {
+          "id": "in_1",
+          "policy": "each"
+        }
+      ],
+      "outputPorts": [
+        {
+          "id": "out_1",
+          "policy": "all"
+        }
+      ],
+      "layout": {
+        "x": 380,
+        "y": 180
+      },
+      "sessionPolicy": "existing"
+    },
+    {
+      "nodeId": "review",
+      "kind": "session",
+      "role": "Review",
+      "skillRefs": [],
+      "prompt": "Review the draft in {{input-x}} and return three concrete fixes.",
+      "outputSpec": {
+        "mode": "text",
+        "fields": [],
+        "maxResults": 1
+      },
+      "defaultOutputPortId": "out_1",
+      "inputPorts": [
+        {
+          "id": "in_1",
+          "policy": "each"
+        }
+      ],
+      "outputPorts": [
+        {
+          "id": "out_1",
+          "policy": "all"
+        }
+      ],
+      "layout": {
+        "x": 640,
+        "y": 180
+      },
+      "sessionPolicy": "existing"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_research_draft",
+      "from": {
+        "nodeId": "research",
+        "portId": "out_1"
+      },
+      "to": {
+        "nodeId": "draft",
+        "portId": "in_1"
+      },
+      "mode": "hard",
+      "order": 0,
+      "instruction": "Write from this brief:\n{{input-x}}"
+    },
+    {
+      "id": "e_draft_review",
+      "from": {
+        "nodeId": "draft",
+        "portId": "out_1"
+      },
+      "to": {
+        "nodeId": "review",
+        "portId": "in_1"
+      },
+      "mode": "hard",
+      "order": 0,
+      "instruction": "Review this draft:\n{{input-x}}"
+    }
+  ],
+  "createdAt": "2026-11-16T00:00:00+08:00",
+  "updatedAt": "2026-11-16T00:00:00+08:00"
+}
